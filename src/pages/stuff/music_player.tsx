@@ -1,55 +1,10 @@
-import { JSX, createEffect, createSignal, on } from "solid-js";
-import P5 from "p5";
+import { For, JSX, createEffect, createSignal, on, untrack } from "solid-js";
+import type P5 from "p5";
 
 type Segment = {
   start: number;
   length: number;
 };
-
-// function findProminentSegments(frequencyData: Float32Array, windowSize: number): Segment[] {
-//   const segments: Segment[] = [];
-//   let start = 0; // 突出信号片段的起始索引
-//   let isSegment = false; // 是否正在记录一个突出的信号片段
-
-//   // 遍历 FrequencyData
-//   for (let i = 0; i < frequencyData.length; i++) {
-//       // 确定当前窗口的边界
-//       const windowStart = Math.max(i - windowSize, 0);
-//       const windowEnd = Math.min(i + windowSize + 1, frequencyData.length);
-
-//       // 计算窗口内的平均值和最大值
-//       let sum = 0;
-//       let max = -Infinity;
-//       for (let j = windowStart; j < windowEnd; j++) {
-//           sum += frequencyData[j];
-//           if (frequencyData[j] > max) {
-//               max = frequencyData[j];
-//           }
-//       }
-//       const avg = sum / (windowEnd - windowStart);
-
-//       // 检测当前点是否为突出信号片段的开始
-//       if (frequencyData[i] > avg && frequencyData[i] === max) {
-//           if (!isSegment) {
-//               start = i; // 标记突出信号片段的开始
-//               isSegment = true;
-//           }
-//       } else {
-//           if (isSegment) {
-//               // 当前点不属于突出信号片段，但之前记录了一个片段，现在结束该片段
-//               segments.push({ start: start, length: i - start });
-//               isSegment = false;
-//           }
-//       }
-//   }
-
-//   // 检查是否有未结束的突出信号片段
-//   if (isSegment) {
-//       segments.push({ start: start, length: frequencyData.length - start });
-//   }
-
-//   return segments;
-// }
 
 function findProminentSegments(
   frequencyData: Float32Array,
@@ -138,29 +93,49 @@ function interpolateLinearToLogScale(
   return logScaleArray;
 }
 
+const fft_sizes = [512, 1024, 2048, 4096, 8192, 16384, 32768];
+
 export const MusicPlayer = () => {
   let audio_player: any, canvas_container: any;
 
   const [ac, set_ac] = createSignal<AudioContext>();
+  const [analyser_node, set_analyser_node] = createSignal<AnalyserNode>();
+  const [fft_size, set_fft_size] = createSignal(2048);
+
   createEffect(() => {
+    const an = analyser_node();
+    if (an) {
+      an.fftSize = fft_size();
+    }
+  });
+
+  createEffect(async () => {
     const _ac = ac();
+
+    const p5_esm = await import("p5");
+    const P5 = p5_esm.default;
+
     if (_ac) {
       const player_node = _ac.createMediaElementSource(audio_player);
+
       player_node.connect(_ac.destination);
 
-      const fft_size = 4096 * 2;
-      const analyser_node = _ac.createAnalyser();
-      analyser_node.fftSize = fft_size;
-      player_node.connect(analyser_node);
+      const _analyser_node = _ac.createAnalyser();
+      _analyser_node.fftSize = untrack(() => fft_size()) as number;
+      _analyser_node.smoothingTimeConstant = 0;
+      player_node.connect(_analyser_node);
+      set_analyser_node(_analyser_node);
 
-      const buffer_length = analyser_node.frequencyBinCount;
-      const data_array = new Float32Array(buffer_length);
+      // const buffer_length = _analyser_node.frequencyBinCount;
+      const data_array = new Float32Array(32768);
+
+      let main_canvas: P5.Renderer;
 
       const _p5 = new P5((p5: P5) => {
         let prev_x = 0;
         let prev_y = 0;
         p5.setup = () => {
-          p5.resizeCanvas(innerWidth, innerHeight);
+          main_canvas = p5.createCanvas(innerWidth, innerHeight);
           p5.colorMode(p5.HSL, 360, 100, 100);
           p5.stroke(0, 0, 0, 0);
           window.addEventListener("resize", () => {
@@ -168,30 +143,75 @@ export const MusicPlayer = () => {
           });
         };
         p5.draw = () => {
-          analyser_node.getFloatFrequencyData(data_array);
-          const segs = findProminentSegments(data_array, 64);
+          _analyser_node.getFloatFrequencyData(data_array);
+          // const segs = findProminentSegments(data_array, 64 * fft_size / 4096);
           const seg_map: Record<number, boolean> = {};
-          for (let index = 0; index < segs.length; index++) {
-            const seg = segs[index];
-            seg_map[seg.start] = true;
-          }
+          // for (let index = 0; index < segs.length; index++) {
+          //   const seg = segs[index];
+          //   seg_map[seg.start] = true;
+          // }
+
+          const _fft_size = untrack(() => fft_size());
+          const buffer_length = _fft_size / 2;
 
           // const avg_scaler = 4;
           const processed_buffer_length = buffer_length * 0.9;
 
-          let avg = 0;
-          for (let i = 0; i < processed_buffer_length; i++) {
-            avg += data_array[i] + 100;
-          }
-          avg /= buffer_length;
+          // let avg = 0;
+          // for (let i = 0; i < processed_buffer_length; i++) {
+          //   avg += data_array[i] + 100;
+          // }
+          // avg /= buffer_length;
 
-          p5.fill((avg * 8) % 360, 20, Math.max(avg / 4 + 10, 0));
-          p5.rect(0, 0, p5.width, p5.height);
+          // if (p5.frameCount % 5 === 0) {
+          // const data = p5.drawingContext.getImageData(
+          //   0,
+          //   0,
+          //   p5.width * p5.pixelDensity(),
+          //   p5.height * p5.pixelDensity()
+          // );
+          // p5.scale(0.5);
+          // p5.drawingContext.scale(0.8, 0.8);
+          // p5.drawingContext.translate(0, -50);
+          p5.drawingContext.drawImage(
+            main_canvas.elt,
+            0,
+            0,
+            p5.width * p5.pixelDensity(),
+            p5.height * p5.pixelDensity(),
+            p5.width * 0.0025,
+            p5.height * 0.0010,
+            p5.width * 0.996,
+            p5.height * 0.996
+          );
+          // p5.drawingContext.scale(1 / 0.8, 1 / 0.8);
+          // p5.drawingContext.translate(0, 50);
+          // p5.scale(2);
+          // }
+
+          // p5.stroke(0)
+          // p5.fill(
+          //   // (avg * 8) % 360,
+          //   0,
+          //   // 20,
+          //   0,
+          //   // Math.max(avg / 4 + 10, 0)
+          //   0,
+          //   0.0005
+          // );
+          // p5.rect(0, 0, p5.width, p5.height);
           if (p5.frameCount % 100 === 0) {
+            console.log(p5.frameRate());
+            // console.log(_fft_size);
+            // console.log(p5.drawingContext);
             // console.log(interpolateLinearToLogScale(data_array, fft_size));
             // console.log(avg);
             // console.log(findProminentSegments(data_array, 64))
           }
+
+          // p5.translate(p5.width / 2, p5.height / 2);
+          // p5.rotate(p5.frameCount / 360);
+          // p5.translate(0, 0);
 
           // const log_data_array = interpolateLinearToLogScale(data_array, fft_size / 2)
           // let posX = 0;
@@ -200,36 +220,27 @@ export const MusicPlayer = () => {
             const x =
               ((Math.log(i) / Math.log(processed_buffer_length)) * 0.5 +
                 (i / processed_buffer_length) * 0.5) *
+              // (i / processed_buffer_length) *
               p5.width;
             const y = p5.height - bar_height / 2;
-            p5.fill(
-              Math.floor((data_array[i] + 150) * 6) % 360,
-              80,
-              // 40 + (data_array[i] + 150) / 5
-              60
-            );
-            // p5.rect(x, y, bar_width, bar_height / 2);
-            p5.stroke(
-              Math.floor((data_array[i] + 150) * 6) % 360,
-              80,
-              // 40 + (data_array[i] + 150) / 5
-              60
-            );
+            p5.fill(Math.floor((data_array[i] + 150) * 6) % 360, 80, 60);
+            p5.stroke(Math.floor((data_array[i] + 150) * 6) % 360, 80, 60);
             p5.line(prev_x, prev_y, x, y);
             prev_x = x;
             prev_y = y;
-            if (seg_map[i]) {
-              p5.fill(0, 0, 100);
-              p5.text(
-                `${((_ac.sampleRate / fft_size) * i).toFixed(0)}\n${data_array[
-                  i
-                ].toFixed(2)}`,
-                x,
-                y
-              );
-            }
-            // posX += bar_width;
+            // if (seg_map[i]) {
+            //   p5.fill(0, 0, 100);
+            //   p5.text(
+            //     `${((_ac.sampleRate / _fft_size) * i).toFixed(0)}\n${data_array[
+            //       i
+            //     ].toFixed(2)}`,
+            //     x,
+            //     y
+            //   );
+            // }
           }
+          prev_x = 0;
+          prev_y = 0;
         };
       }, canvas_container);
     }
@@ -268,6 +279,18 @@ export const MusicPlayer = () => {
       ></div>
       <div class="relative flex flex-col bg-[#fffa] backdrop-blur-[10px] p-4 rounded shadow gap-2 mt-5">
         <input type="file" onChange={handle_file_input_change}></input>
+        <div class="flex">
+          <label>FFT size：</label>
+          <select onChange={(e) => set_fft_size(parseInt(e.target.value))}>
+            <For each={fft_sizes}>
+              {(it) => (
+                <option value={it} selected={it === fft_size()}>
+                  {it}
+                </option>
+              )}
+            </For>
+          </select>
+        </div>
         <audio ref={audio_player} src={obj_url()} controls></audio>
       </div>
     </div>
