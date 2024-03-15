@@ -2,16 +2,35 @@
 import { render } from "solid-js/web";
 
 import { Route, Router } from "@solidjs/router";
+import { lazy } from "solid-js";
 import "./index.css";
-import { MusicPlayer } from "./pages/stuff/music_player";
 
 const root = document.getElementById("root");
+
+async function wrapper<T>(compo: Promise<T>, prop_name: keyof T) {
+  return {
+    default: (await compo)[prop_name],
+  };
+}
 
 render(
   () => (
     <Router>
       <Route path="/stuff">
-        <Route path="/music_player" component={MusicPlayer}></Route>
+        <Route
+          path="/music_player"
+          component={lazy(async () =>
+            wrapper(import("./pages/stuff/music_player"), "MusicPlayer")
+          )}
+        ></Route>
+      </Route>
+      <Route path="/audio">
+        <Route
+          path="/fake_bit_depth"
+          component={lazy(async () =>
+            wrapper(import("./pages/audio/fake_bit_depth"), "FakeBitDepth")
+          )}
+        ></Route>
       </Route>
       <Route
         path="/*404"
