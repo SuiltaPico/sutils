@@ -1,30 +1,8 @@
 import { Component, createEffect, createSignal, on } from "solid-js";
 import { WaveFile } from "wavefile";
-import { scaleLinear, ScaleLinear } from "d3-scale";
+// import { scaleLinear, ScaleLinear } from "d3-scale";
 
-type ScalerMap = Record<number, ScaleLinear<number, number, never>>;
-
-function generate_scale(src_bit_depth: number) {
-  const bit_depths = [8, 12, 16, 18, 20, 24, 32];
-  const i = bit_depths.findIndex((it) => it == src_bit_depth);
-
-  const result: ScalerMap = {};
-
-  for (let index = i - 1; index >= 0; index--) {
-    const target_bit_depth = bit_depths[index];
-    console.log(
-      [-(2 ** (src_bit_depth - 1)), 2 ** (src_bit_depth - 1) - 1],
-      [-(2 ** (target_bit_depth - 1)), 2 ** (target_bit_depth - 1) - 1]
-    );
-
-    result[target_bit_depth] = scaleLinear(
-      [-(2 ** (src_bit_depth - 1)), 2 ** (src_bit_depth - 1) - 1],
-      [-(2 ** (target_bit_depth - 1)), 2 ** (target_bit_depth - 1) - 1]
-    );
-  }
-
-  return result;
-}
+// type ScalerMap = Record<number, ScaleLinear<number, number, never>>;
 
 export const FakeBitDepth: Component = () => {
   const [src_bit_depth, set_src_bit_depth] = createSignal(-1);
