@@ -56,43 +56,6 @@ function findProminentSegments(
   return segments;
 }
 
-function interpolateLinearToLogScale(
-  linearArray: Float32Array,
-  targetSize: number
-): number[] {
-  // 创建一个新的数组来存储对数刻度的值
-  const logScaleArray = new Array(targetSize).fill(0);
-
-  // 频率范围
-  const minFreq = 10; // 避免对数0的情况
-  const maxFreq = 20000;
-
-  // 对每个目标索引进行插值
-  for (let i = 0; i < targetSize; i++) {
-    // 将目标索引映射到对数刻度
-    const logIndex =
-      minFreq * Math.pow(maxFreq / minFreq, i / (targetSize - 1));
-
-    // 找到对应的线性索引
-    const linearIndex = (logIndex / maxFreq) * (linearArray.length - 1);
-
-    // 线性插值
-    const indexLow = Math.floor(linearIndex);
-    const indexHigh = Math.ceil(linearIndex);
-    const weightHigh = linearIndex - indexLow;
-    const weightLow = 1 - weightHigh;
-
-    // 确保索引在数组范围内
-    if (indexLow >= 0 && indexHigh < linearArray.length) {
-      // 计算插值结果
-      logScaleArray[i] =
-        linearArray[indexLow] * weightLow + linearArray[indexHigh] * weightHigh;
-    }
-  }
-
-  return logScaleArray;
-}
-
 const fft_sizes = [512, 1024, 2048, 4096, 8192, 16384, 32768];
 
 export const MusicPlayer = () => {

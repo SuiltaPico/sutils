@@ -9,7 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ffmpeg/core-mt": "^0.12.6",
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/util": "^0.12.1",
     "@solidjs/router": "^0.13.0",
+    "clsx": "^2.1.0",
     "d3-scale": "^4.0.2",
     "p5": "^1.9.1",
     "solid-js": "^1.8.15",
