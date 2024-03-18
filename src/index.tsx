@@ -15,7 +15,7 @@ import "./index.css";
 
 const root = document.getElementById("root");
 
-async function wrapper<T>(compo: Promise<T>, prop_name: keyof T) {
+async function wrapper<T, U extends keyof T>(compo: Promise<T>, prop_name: U) {
   return {
     default: (await compo)[prop_name],
   };
