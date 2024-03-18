@@ -13,8 +13,10 @@
     "@ffmpeg/ffmpeg": "^0.12.10",
     "@ffmpeg/util": "^0.12.1",
     "@solidjs/router": "^0.13.0",
+    "@types/dom-webcodecs": "^0.1.11",
     "clsx": "^2.1.0",
     "d3-scale": "^4.0.2",
+    "dexie": "^3.2.6",
     "p5": "^1.9.1",
     "solid-js": "^1.8.15",
     "tone": "^14.7.77",
@@ -27,6 +29,7 @@
     "tailwindcss": "^3.4.1",
     "typescript": "^5.2.2",
     "vite": "^5.1.6",
+    "vite-plugin-mkcert": "^1.17.4",
     "vite-plugin-solid": "^2.10.1"
   }
 }
