@@ -7,11 +7,14 @@ import {
   For,
   Match,
   Resource,
+  Show,
   Switch,
   createEffect,
   createRenderEffect,
   createResource,
   createSignal,
+  createUniqueId,
+  on,
 } from "solid-js";
 import { SettingTable, setting_decl } from "../../common/settings";
 import { Button } from "../../components/common/Button";
@@ -52,6 +55,31 @@ const load = async (sure: boolean) => {
   return ffmpeg;
 };
 
+const createLogState = () => {
+  const [logs, set_logs] = createSignal<string[]>([]);
+  const [ignore_build_info, set_ignore_build_info] = createSignal(true);
+  return {
+    logs,
+    set_logs,
+    push_log(log: string) {
+      if (
+        ignore_build_info() &&
+        (log.startsWith("ffmpeg version ") ||
+          log.startsWith("  built with ") ||
+          log.startsWith("  configuration: ") ||
+          log.match(/^ {2}lib(\w)+\s*(\d|\.|\s)+\/(\d|\.|\s)+$/))
+      ) {
+        return;
+      }
+      set_logs([...logs(), log]);
+    },
+    ignore_build_info,
+    set_ignore_build_info,
+  };
+};
+
+export type LogState = ReturnType<typeof createLogState>;
+
 type FFmpegOutputTree = {
   header?: string;
   value?: string;
@@ -62,6 +90,8 @@ export const FFmpegOutputTreeRenderer: Component<{
   path: string[];
 }> = (props) => {
   function header_translator(header?: string) {
+    if (!header) return header;
+
     const map = {
       metadata: "元信息",
       track: "音轨",
@@ -83,35 +113,66 @@ export const FFmpegOutputTreeRenderer: Component<{
     if (in_map) {
       return in_map;
     }
+
+    const stream_matched = header.match(
+      /Stream \#(?<input_id>\d+):(?<stream_id>\d+)/
+    );
+    if (stream_matched) {
+      return `流 #${stream_matched.groups!.input_id}:${
+        stream_matched.groups!.stream_id
+      }`;
+    }
     return header;
   }
 
   return (
     <div class="flex flex-col">
       <div class="flex">
-        <div class="w-max">{header_translator(props.it.header)}</div>
-        <div>:</div>
+        <div class="flex-shrink-0">{header_translator(props.it.header)}</div>
+        <div class="mr-1">:</div>
         <div>{props.it.value}</div>
       </div>
-      <div class="flex flex-col p-2">
-        <For each={props.it}>
-          {(it, index) => (
-            <FFmpegOutputTreeRenderer
-              it={it}
-              path={props.path.concat(index().toString())}
-            ></FFmpegOutputTreeRenderer>
-          )}
-        </For>
-      </div>
+      <Show when={props.it.length > 0}>
+        <div class="flex flex-col p-2">
+          <For each={props.it}>
+            {(it, index) => (
+              <FFmpegOutputTreeRenderer
+                it={it}
+                path={props.path.concat(index().toString())}
+              ></FFmpegOutputTreeRenderer>
+            )}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 };
 
+type FormatBrief = {
+  demuxing: boolean;
+  muxing: boolean;
+  name: string;
+  description: string;
+};
+
+async function log_collect(ffmpeg: FFmpeg, cmd: string[]) {
+  const logs: string[] = [];
+  function handle_log(e: any) {
+    logs.push(e.message);
+  }
+  ffmpeg.on("log", handle_log);
+  await ffmpeg.exec(cmd);
+  ffmpeg.off("log", handle_log);
+
+  return logs;
+}
+
 export const FFmpegUIMain: Component<{
-  ffmpeg_logs: Accessor<string[]>;
   ffmpeg: Resource<FFmpeg | undefined>;
+  log: LogState;
 }> = (props) => {
   let file_id_counter = 0;
+  const ignore_build_log_id = createUniqueId();
 
   const [file_list, set_file_list] = createSignal<
     {
@@ -121,6 +182,35 @@ export const FFmpegUIMain: Component<{
     }[]
   >([]);
   const [cmd, set_cmd] = createSignal<string>("");
+
+  const [supported_format, set_supported_format] = createSignal<FormatBrief[]>(
+    []
+  );
+  createEffect(
+    on(props.ffmpeg, async () => {
+      const f = props.ffmpeg();
+      if (!f) return;
+
+      const logs = await log_collect(f, ["-formats"]);
+      const matched = [
+        ...logs
+          .join("\n")
+          .matchAll(
+            /^ (D| )(E| )\s+(?<name>(\w)+)\s+(?<description>[^\n]+)$/gm
+          ),
+      ];
+      set_supported_format(
+        matched.map((it) => {
+          return {
+            name: it.groups!.name,
+            description: it.groups!.description,
+            demuxing: it.groups!.d !== " ",
+            muxing: it.groups!.e !== " ",
+          };
+        })
+      );
+    })
+  );
 
   async function handle_file_input(e: { target: HTMLInputElement }) {
     const files = e.target.files;
@@ -145,7 +235,7 @@ export const FFmpegUIMain: Component<{
 
       for (const log of logs) {
         const log_re =
-          /^(?<indent>\s*)(?<header>[^\:]+?)\s*\:\s*(?<value>[^]+)?$/;
+          /^(?<indent>\s*)(?<header>[^]+?)\s*\:(?:$|\s+(?<value>[^]+)?$)/;
         const matched = log.match(log_re);
         if (
           !matched ||
@@ -161,6 +251,8 @@ export const FFmpegUIMain: Component<{
         new_arr.value = matched.groups!.value ?? "";
         level_tree.push(new_arr);
       }
+
+      console.log(tree);
 
       set_file_list([
         ...file_list(),
@@ -201,9 +293,18 @@ export const FFmpegUIMain: Component<{
         </For>
       </div>
       <div class="flex flex-col w-full">
-        <div>交互窗口</div>
+        <div class="text-lg">交互窗口</div>
+        <div class="flex gap-1">
+          <input
+            id={ignore_build_log_id}
+            type="checkbox"
+            checked={props.log.ignore_build_info()}
+            onChange={(e) => props.log.set_ignore_build_info(e.target.checked)}
+          />
+          <label for={ignore_build_log_id}>忽略编译输出</label>
+        </div>
         <code class="font-mono p-2 border max-h-[60vh] overflow-y-auto">
-          <For each={props.ffmpeg_logs()}>
+          <For each={props.log.logs()}>
             {(it) => <div class="whitespace-pre-wrap">{it}</div>}
           </For>
         </code>
@@ -224,6 +325,13 @@ export const FFmpegUIMain: Component<{
           </Button>
         </div>
       </div>
+      <div>
+        <div class="text-lg">FFmpeg 信息</div>
+        <div>支持的格式</div>
+        <div class="flex flex-wrap gap-2 max-h-[400px] overflow-auto text-sm">
+          <For each={supported_format()}>{(it) => <div class="p-1 rounded bg-zinc-100">{it.name}</div>}</For>
+        </div>
+      </div>
     </div>
   );
 };
@@ -231,10 +339,11 @@ export const FFmpegUIMain: Component<{
 export const FFmpegUI = () => {
   const db = new AppDatabase();
 
-  const [ffmpeg_logs, set_ffmpeg_logs] = createSignal<string[]>([]);
   const [download_ffmpeg, set_download_ffmpeg] = createSignal(false);
 
   const [ffmpeg] = createResource(download_ffmpeg, load);
+
+  const log = createLogState();
 
   const init = (async () => {
     const auto_load_ffmpeg = (await db.settings.get("auto_load_ffmpeg"))?.value;
@@ -243,7 +352,7 @@ export const FFmpegUI = () => {
 
   createEffect(() => {
     ffmpeg()?.on("log", ({ message }) => {
-      set_ffmpeg_logs([...ffmpeg_logs(), message]);
+      log.push_log(message);
     });
     ffmpeg()?.on("progress", (ev) => {
       console.log(ev);
@@ -288,10 +397,7 @@ export const FFmpegUI = () => {
         </Match>
 
         <Match when={true}>
-          <FFmpegUIMain
-            ffmpeg_logs={ffmpeg_logs}
-            ffmpeg={ffmpeg}
-          ></FFmpegUIMain>
+          <FFmpegUIMain ffmpeg={ffmpeg} log={log}></FFmpegUIMain>
         </Match>
       </Switch>
     </div>
